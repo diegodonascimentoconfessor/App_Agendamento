@@ -1,16 +1,111 @@
-/* =====================================================
-   Agenda+ — script.js
-   ===================================================== */
+
+
+const firebaseConfig = {
+  apiKey:            "AIzaSyBz21jxNqU6_q3spoagCboyxYHrSvRq_04",
+  authDomain:        "agenda-9ceec.firebaseapp.com",
+  projectId:         "agenda-9ceec",
+  storageBucket:     "agenda-9ceec.firebasestorage.app",
+  messagingSenderId: "401612427005",
+  appId:             "1:401612427005:web:40b5be40ba0ce261abb894",
+};
+
+// ══════════════════════════════════════════════════════
+//  INICIALIZAÇÃO FIREBASE
+// ══════════════════════════════════════════════════════
+
+let db = null;
+let useFirebase = false;
+
+function initFirebase() {
+  try {
+    if (!firebaseConfig.projectId || firebaseConfig.projectId === "SEU_PROJETO") {
+      console.warn("⚠ Firebase não configurado — usando armazenamento local.");
+      setDbStatus(false);
+      loadFromLocalStorage();
+      return;
+    }
+
+    firebase.initializeApp(firebaseConfig);
+    db = firebase.firestore();
+
+    // Habilitar cache offline (funciona mesmo sem internet)
+    db.enablePersistence({ synchronizeTabs: true })
+      .catch(err => console.warn("Persistência offline não disponível:", err.code));
+
+    useFirebase = true;
+    setDbStatus(true);
+
+    // Listener em tempo real: qualquer mudança no Firestore atualiza a UI
+    db.collection("agendamentos")
+      .orderBy("createdAt", "desc")
+      .onSnapshot(snapshot => {
+        appointments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        refreshAll();
+      }, err => {
+        console.error("Erro no listener:", err);
+        setDbStatus(false);
+      });
+
+  } catch (e) {
+    console.error("Erro ao inicializar Firebase:", e);
+    setDbStatus(false);
+    loadFromLocalStorage();
+  }
+}
+
+// ── Status visual na sidebar ──────────────────────────
+
+function setDbStatus(online) {
+  const dot   = document.getElementById('db-dot');
+  const label = document.getElementById('db-label');
+  if (online) {
+    dot.style.background   = '#2ecc71';
+    label.textContent      = 'Firebase conectado';
+  } else {
+    dot.style.background   = '#f39c12';
+    label.textContent      = useFirebase ? 'Modo offline' : 'Armazenamento local';
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  FALLBACK: localStorage (quando Firebase não configurado)
+// ══════════════════════════════════════════════════════
+
+function loadFromLocalStorage() {
+  const raw = localStorage.getItem('agendamentos');
+  appointments = raw ? JSON.parse(raw) : getDemoData();
+  refreshAll();
+}
+
+function saveToLocalStorage() {
+  localStorage.setItem('agendamentos', JSON.stringify(appointments));
+}
+
+function getDemoData() {
+  const today = new Date();
+  return [
+    {
+      id: 'demo1', name: 'Maria Oliveira', phone: '(84) 99887-6655', email: 'maria@email.com',
+      time: '09:00', serviceName: 'Massagem', serviceId: 's1',
+      dateKey: fmtKey(today), year: today.getFullYear(), month: today.getMonth(), day: today.getDate(), obs: '',
+    },
+    {
+      id: 'demo2', name: 'Carlos Lima', phone: '(84) 98776-5544', email: '',
+      time: '10:30', serviceName: 'Corte + Escova', serviceId: 's2',
+      dateKey: fmtKey(today), year: today.getFullYear(), month: today.getMonth(), day: today.getDate(), obs: '',
+    },
+  ];
+}
 
 // ── Dados ─────────────────────────────────────────────
 
 const SERVICES = [
-  { id: 's1', icon: '💆', name: 'Massagem',       duration: '60 min' },
-  { id: 's2', icon: '💇', name: 'Corte + Escova', duration: '45 min' },
-  { id: 's3', icon: '💅', name: 'Manicure',       duration: '30 min' },
-  { id: 's4', icon: '🧖', name: 'Limpeza Facial', duration: '50 min' },
-  { id: 's5', icon: '🦷', name: 'Consulta Médica',duration: '30 min' },
-  { id: 's6', icon: '🏋️', name: 'Personal Trainer',duration: '60 min' },
+  { id: 's1', icon: '💆', name: 'Massagem',        duration: '60 min' },
+  { id: 's2', icon: '💇', name: 'Corte + Escova',  duration: '45 min' },
+  { id: 's3', icon: '💅', name: 'Manicure',         duration: '30 min' },
+  { id: 's4', icon: '🧖', name: 'Limpeza Facial',   duration: '50 min' },
+  { id: 's5', icon: '🦷', name: 'Consulta Médica',  duration: '30 min' },
+  { id: 's6', icon: '🏋️', name: 'Personal Trainer', duration: '60 min' },
 ];
 
 const ALL_SLOTS = [
@@ -35,11 +130,6 @@ let appointments    = [];
 
 // ── Utilitários ───────────────────────────────────────
 
-/**
- * Formata uma data como "DD/MM/AAAA".
- * @param {Date} d
- * @returns {string}
- */
 function fmt(d) {
   return [
     String(d.getDate()).padStart(2, '0'),
@@ -48,13 +138,18 @@ function fmt(d) {
   ].join('/');
 }
 
-/**
- * Chave única de um dia: "AAAA-MM-DD".
- * @param {Date} d
- * @returns {string}
- */
 function fmtKey(d) {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+// ── Atualização geral (chamada pelo listener) ─────────
+
+function refreshAll() {
+  renderMiniCal();
+  renderSlots();
+  renderAppointments();
+  renderUpcoming();
+  updateCounts();
 }
 
 // ── Mini Calendário ───────────────────────────────────
@@ -65,21 +160,19 @@ function renderMiniCal() {
 
   document.getElementById('mini-month-year').textContent = `${PT_MONTHS[m]} ${y}`;
 
-  const firstWeekday  = new Date(y, m, 1).getDay();
-  const daysInMonth   = new Date(y, m + 1, 0).getDate();
-  const daysInPrev    = new Date(y, m, 0).getDate();
-  const today         = new Date();
+  const firstWeekday = new Date(y, m, 1).getDay();
+  const daysInMonth  = new Date(y, m + 1, 0).getDate();
+  const daysInPrev   = new Date(y, m, 0).getDate();
+  const today        = new Date();
 
-  let html        = '';
-  let totalCells  = 0;
+  let html       = '';
+  let totalCells = 0;
 
-  // Dias do mês anterior
   for (let i = firstWeekday - 1; i >= 0; i--) {
     html += `<div class="day-cell other-month">${daysInPrev - i}</div>`;
     totalCells++;
   }
 
-  // Dias do mês atual
   for (let d = 1; d <= daysInMonth; d++) {
     const thisDate   = new Date(y, m, d);
     const isToday    = today.getDate() === d && today.getMonth() === m && today.getFullYear() === y;
@@ -95,7 +188,6 @@ function renderMiniCal() {
     totalCells++;
   }
 
-  // Completar última linha
   let next = 1;
   while (totalCells % 7 !== 0) {
     html += `<div class="day-cell other-month">${next++}</div>`;
@@ -105,22 +197,15 @@ function renderMiniCal() {
   document.getElementById('mini-days').innerHTML = html;
 }
 
-/**
- * Avança ou retrocede o mês exibido no mini calendário.
- * @param {number} dir  +1 próximo / -1 anterior
- */
 function changeMonth(dir) {
   currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + dir, 1);
   renderMiniCal();
 }
 
-/**
- * Seleciona um dia no calendário.
- */
 function selectDay(y, m, d) {
-  selectedDate  = new Date(y, m, d);
-  currentDate   = new Date(y, m, 1);
-  selectedSlot  = null;
+  selectedDate = new Date(y, m, d);
+  currentDate  = new Date(y, m, 1);
+  selectedSlot = null;
 
   renderMiniCal();
   renderMainDate();
@@ -171,8 +256,8 @@ function renderSlots() {
     const isSel    = selectedSlot === t;
 
     let cls = 'slot';
-    if (isBooked) cls += ' booked';
-    else if (isSel) cls += ' selected-slot';
+    if (isBooked)      cls += ' booked';
+    else if (isSel)    cls += ' selected-slot';
 
     const clickHandler = isBooked ? '' : `onclick="selectSlot('${t}')"`;
     return `<div class="${cls}" ${clickHandler}>${t}</div>`;
@@ -186,7 +271,7 @@ function selectSlot(t) {
 
 // ── Confirmação ───────────────────────────────────────
 
-function confirmBooking() {
+async function confirmBooking() {
   const name  = document.getElementById('inp-name').value.trim();
   const phone = document.getElementById('inp-phone').value.trim();
   const email = document.getElementById('inp-email').value.trim();
@@ -198,8 +283,7 @@ function confirmBooking() {
 
   const svc = SERVICES.find(s => s.id === selectedService);
 
-  appointments.push({
-    id:          Date.now().toString(),
+  const appt = {
     name,
     phone,
     email,
@@ -211,20 +295,40 @@ function confirmBooking() {
     year:        selectedDate.getFullYear(),
     month:       selectedDate.getMonth(),
     day:         selectedDate.getDate(),
-  });
+    createdAt:   useFirebase
+                   ? firebase.firestore.FieldValue.serverTimestamp()
+                   : new Date().toISOString(),
+  };
 
-  // Limpar formulário
-  ['inp-name','inp-phone','inp-email','inp-obs'].forEach(id => {
-    document.getElementById(id).value = '';
-  });
-  selectedSlot = null;
+  // Desabilitar botão enquanto salva
+  const btn = document.querySelector('.btn-confirm');
+  btn.disabled    = true;
+  btn.textContent = 'Salvando...';
 
-  renderSlots();
-  renderAppointments();
-  renderMiniCal();
-  renderUpcoming();
-  updateCounts();
-  showToast('✓ Agendamento confirmado com sucesso!');
+  try {
+    if (useFirebase) {
+      await db.collection("agendamentos").add(appt);
+      // O listener onSnapshot cuida de atualizar appointments[] automaticamente
+    } else {
+      appointments.push({ id: Date.now().toString(), ...appt });
+      saveToLocalStorage();
+      refreshAll();
+    }
+
+    // Limpar formulário
+    ['inp-name','inp-phone','inp-email','inp-obs'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    selectedSlot = null;
+
+    showToast('✓ Agendamento confirmado com sucesso!');
+  } catch (e) {
+    console.error("Erro ao salvar:", e);
+    showToast('❌ Erro ao salvar. Tente novamente.');
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = 'Confirmar Agendamento';
+  }
 }
 
 // ── Lista de Agendamentos ─────────────────────────────
@@ -263,14 +367,21 @@ function renderAppointments() {
   `).join('');
 }
 
-function cancelAppt(id) {
-  appointments = appointments.filter(a => a.id !== id);
-  renderSlots();
-  renderAppointments();
-  renderMiniCal();
-  renderUpcoming();
-  updateCounts();
-  showToast('Agendamento cancelado.');
+async function cancelAppt(id) {
+  try {
+    if (useFirebase) {
+      await db.collection("agendamentos").doc(id).delete();
+      // onSnapshot atualiza automaticamente
+    } else {
+      appointments = appointments.filter(a => a.id !== id);
+      saveToLocalStorage();
+      refreshAll();
+    }
+    showToast('Agendamento cancelado.');
+  } catch (e) {
+    console.error("Erro ao cancelar:", e);
+    showToast('❌ Erro ao cancelar. Tente novamente.');
+  }
 }
 
 // ── Próximos Agendamentos (sidebar) ──────────────────
@@ -349,29 +460,12 @@ function scrollToForm() {
 // ── Inicialização ─────────────────────────────────────
 
 function init() {
-  // Dados demo
-  const today = new Date();
-  appointments.push(
-    {
-      id: 'demo1', name: 'Maria Oliveira', phone: '(84) 99887-6655', email: 'maria@email.com',
-      time: '09:00', serviceName: 'Massagem', serviceId: 's1',
-      dateKey: fmtKey(today), year: today.getFullYear(), month: today.getMonth(), day: today.getDate(), obs: '',
-    },
-    {
-      id: 'demo2', name: 'Carlos Lima', phone: '(84) 98776-5544', email: '',
-      time: '10:30', serviceName: 'Corte + Escova', serviceId: 's2',
-      dateKey: fmtKey(today), year: today.getFullYear(), month: today.getMonth(), day: today.getDate(), obs: '',
-    }
-  );
-
   renderMiniCal();
   renderMainDate();
   renderServices();
   renderSlots();
   renderAppointments();
-  renderUpcoming();
-  updateCounts();
+  initFirebase(); // Conecta ao banco (ou localStorage como fallback)
 }
 
-// Iniciar após o DOM estar pronto
 document.addEventListener('DOMContentLoaded', init);

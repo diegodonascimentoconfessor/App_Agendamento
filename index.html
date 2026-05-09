@@ -40,6 +40,12 @@
         <h4>Próximos</h4>
         <div id="upcoming-list"></div>
       </div>
+
+      <!-- Status do banco -->
+      <div class="db-status" id="db-status">
+        <span class="db-dot" id="db-dot"></span>
+        <span id="db-label">Conectando...</span>
+      </div>
     </aside>
 
     <!-- MAIN -->
@@ -104,6 +110,12 @@
 
   <!-- TOAST -->
   <div class="toast" id="toast"></div>
+
+  <!-- ══════════════════════════════════════════════════
+       FIREBASE SDK (compat — funciona sem bundler)
+       ══════════════════════════════════════════════════ -->
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
   <script src="script.js"></script>
 </body>

@@ -1,0 +1,18 @@
+# ── Credenciais / Ambiente ──
+config.js
+.env
+.env.*
+
+# ── Sistema operacional ──
+.DS_Store
+Thumbs.db
+
+# ── Editores ──
+.vscode/
+.idea/
+*.suo
+*.user
+
+# ── Node (caso use no futuro) ──
+node_modules/
+npm-debug.log*
