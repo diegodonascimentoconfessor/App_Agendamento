@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Agenda+ — Sistema de Agendamentos</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div class="app">
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar">
+      <div class="logo">Agenda<span>+</span></div>
+      <div class="logo-sub">Sistema de Agendamentos</div>
+
+      <div class="mini-cal">
+        <div class="mini-cal-header">
+          <h3 id="mini-month-year">Maio 2026</h3>
+          <div style="display:flex;gap:4px;">
+            <button class="nav-btn" onclick="changeMonth(-1)">&#8249;</button>
+            <button class="nav-btn" onclick="changeMonth(1)">&#8250;</button>
+          </div>
+        </div>
+        <div class="weekdays">
+          <span>D</span><span>S</span><span>T</span><span>Q</span>
+          <span>Q</span><span>S</span><span>S</span>
+        </div>
+        <div class="days-grid" id="mini-days"></div>
+      </div>
+
+      <div class="sidebar-divider"></div>
+
+      <div class="upcoming">
+        <h4>Próximos</h4>
+        <div id="upcoming-list"></div>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="main">
+      <div class="main-header">
+        <div class="selected-date-display">
+          <h2 id="main-date-title">Carregando...</h2>
+          <p id="main-date-sub">Selecione um horário disponível</p>
+        </div>
+        <button class="btn-new" onclick="scrollToForm()">
+          <i class="ti ti-plus" aria-hidden="true"></i> Novo Agendamento
+        </button>
+      </div>
+
+      <!-- CONTADORES -->
+      <div class="summary-strip">
+        <div class="summary-pill"><span class="pill-num" id="count-today">0</span> hoje</div>
+        <div class="summary-pill"><span class="pill-num" id="count-week">0</span> esta semana</div>
+        <div class="summary-pill"><span class="pill-num" id="count-total">0</span> total</div>
+      </div>
+
+      <!-- SERVIÇOS -->
+      <div class="section-label">Serviço</div>
+      <div class="services-grid" id="services-grid"></div>
+
+      <!-- HORÁRIOS -->
+      <div class="section-label">Horários disponíveis</div>
+      <div class="time-slots" id="time-slots"></div>
+
+      <!-- FORMULÁRIO -->
+      <div class="booking-form" id="booking-form">
+        <h3>Confirmar Agendamento</h3>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="inp-name">Nome completo</label>
+            <input type="text" id="inp-name" placeholder="João Silva" />
+          </div>
+          <div class="form-group">
+            <label for="inp-phone">Telefone</label>
+            <input type="text" id="inp-phone" placeholder="(84) 99999-0000" />
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="inp-email">E-mail</label>
+            <input type="email" id="inp-email" placeholder="joao@email.com" />
+          </div>
+          <div class="form-group">
+            <label for="inp-obs">Observação</label>
+            <textarea id="inp-obs" placeholder="Alguma observação?"></textarea>
+          </div>
+        </div>
+        <button class="btn-confirm" onclick="confirmBooking()">Confirmar Agendamento</button>
+      </div>
+
+      <!-- LISTA DE AGENDAMENTOS -->
+      <div class="section-label" id="appts-label">Agendamentos do dia</div>
+      <div id="appointments-list"></div>
+    </main>
+
+  </div>
+
+  <!-- TOAST -->
+  <div class="toast" id="toast"></div>
+
+  <script src="script.js"></script>
+</body>
+</html>
