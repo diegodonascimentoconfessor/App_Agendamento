@@ -9,7 +9,7 @@ const SERVICES = [
   { id: 's2', icon: '💇', name: 'Corte + Escova',   duration: '45 min' },
   { id: 's3', icon: '💅', name: 'Manicure',          duration: '30 min' },
   { id: 's4', icon: '🧖', name: 'Limpeza Facial',    duration: '50 min' },
-  { id: 's5', icon: '🦷', name: 'Consulta Médica',   duration: '30 min' },
+
   { id: 's6', icon: '🏋️', name: 'Personal Trainer',  duration: '60 min' },
 ];
 
