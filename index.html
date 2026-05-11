@@ -152,7 +152,8 @@
           </div>
           <div class="form-group">
             <label for="inp-phone">Telefone</label>
-            <input type="text" id="inp-phone" placeholder="(84) 99999-0000" />
+            <input type="tel" id="inp-phone" placeholder="(84) 99999-0000"
+                   oninput="this.value = this.value.replace(/[^0-9()\s-]/g, '')" maxlength="15" />
           </div>
         </div>
         <div class="form-row">

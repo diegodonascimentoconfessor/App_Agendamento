@@ -1,7 +1,4 @@
-/* =====================================================
-   Agenda+ — config.js
-   ⚠ Este arquivo está no .gitignore — não suba para o git!
-   ===================================================== */
+
 
 const firebaseConfig = {
   apiKey:            "AIzaSyBz21jxNqU6_q3spoagCboyxYHrSvRq_04",
