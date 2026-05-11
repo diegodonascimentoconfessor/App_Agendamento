@@ -1,49 +1,72 @@
 /* =====================================================
-   Agenda+ — script.js  (Auth + Firestore por usuário)
+   Agenda+ — script.js
+   Design original + multi-estabelecimento + admin
    ===================================================== */
 
 // ── Dados ─────────────────────────────────────────────
-
-const SERVICES = [
-  { id: 's1', icon: '💆', name: 'Massagem',         duration: '60 min' },
-  { id: 's2', icon: '💇', name: 'Corte + Escova',   duration: '45 min' },
-  { id: 's3', icon: '💅', name: 'Manicure',          duration: '30 min' },
-  { id: 's4', icon: '🧖', name: 'Limpeza Facial',    duration: '50 min' },
-
-  { id: 's6', icon: '🏋️', name: 'Personal Trainer',  duration: '60 min' },
-];
 
 const ALL_SLOTS = [
   '08:00','08:30','09:00','09:30','10:00','10:30','11:00','11:30',
   '14:00','14:30','15:00','15:30','16:00','16:30','17:00','17:30',
 ];
 
-const PT_MONTHS = [
-  'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
-  'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro',
-];
+const SERVICES_BY_CAT = {
+  salao:     [
+    { id: 's1', icon: '💇', name: 'Corte Feminino',  duration: '60 min' },
+    { id: 's2', icon: '💆', name: 'Escova',           duration: '45 min' },
+    { id: 's3', icon: '🎨', name: 'Coloração',        duration: '120 min' },
+    { id: 's4', icon: '✨', name: 'Hidratação',       duration: '60 min' },
+  ],
+  estetica:  [
+    { id: 's1', icon: '🧖', name: 'Limpeza Facial',   duration: '50 min' },
+    { id: 's2', icon: '💆', name: 'Massagem',          duration: '60 min' },
+    { id: 's3', icon: '🌿', name: 'Peeling',           duration: '45 min' },
+    { id: 's4', icon: '💎', name: 'Drenagem',          duration: '60 min' },
+  ],
+  manicure:  [
+    { id: 's1', icon: '💅', name: 'Manicure',          duration: '30 min' },
+    { id: 's2', icon: '🦶', name: 'Pedicure',          duration: '40 min' },
+    { id: 's3', icon: '✨', name: 'Gel',               duration: '60 min' },
+    { id: 's4', icon: '🎨', name: 'Nail Art',          duration: '45 min' },
+  ],
+  barbearia: [
+    { id: 's1', icon: '✂️', name: 'Corte Masculino',  duration: '30 min' },
+    { id: 's2', icon: '🪒', name: 'Barba',             duration: '20 min' },
+    { id: 's3', icon: '✂️', name: 'Corte + Barba',    duration: '45 min' },
+    { id: 's4', icon: '💆', name: 'Pigmentação',       duration: '30 min' },
+  ],
+};
 
-const PT_DAYS = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
+const CAT_EMOJI = { salao:'💇', estetica:'🧖', manicure:'💅', barbearia:'✂️' };
+const CAT_LABEL = { salao:'Salão', estetica:'Estética', manicure:'Manicure', barbearia:'Barbearia' };
+
+const PT_MONTHS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                   'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
+const PT_DAYS   = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 
 // ── Estado ────────────────────────────────────────────
 
-let currentDate     = new Date();
+let db              = null;
+let currentUser     = null;
+let userRole        = null;   // 'superadmin' | 'admin' | 'client'
+let adminEstabId    = null;
+let unsubscribe     = null;
+
+let currentEstab    = null;
 let selectedDate    = new Date();
+let currentDate     = new Date();
 let selectedService = null;
 let selectedSlot    = null;
 let appointments    = [];
-let currentUser     = null;
-let db              = null;
-let unsubscribe     = null; // cancela o listener anterior ao trocar de usuário
+let allEstabs       = [];
+let activeCategory  = 'todos';
 
 // ── Utilitários ───────────────────────────────────────
 
 function fmt(d) {
-  return [
-    String(d.getDate()).padStart(2,'0'),
-    String(d.getMonth()+1).padStart(2,'0'),
-    d.getFullYear(),
-  ].join('/');
+  return [String(d.getDate()).padStart(2,'0'),
+          String(d.getMonth()+1).padStart(2,'0'),
+          d.getFullYear()].join('/');
 }
 
 function fmtKey(d) {
@@ -51,57 +74,57 @@ function fmtKey(d) {
 }
 
 // ══════════════════════════════════════════════════════
-//  FIREBASE — INICIALIZAÇÃO
+//  FIREBASE
 // ══════════════════════════════════════════════════════
 
 function initFirebase() {
   firebase.initializeApp(firebaseConfig);
   db = firebase.firestore();
+  db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 
-  db.enablePersistence({ synchronizeTabs: true })
-    .catch(e => console.warn('Offline persistence:', e.code));
-
-  // Observa mudanças de autenticação
-  firebase.auth().onAuthStateChanged(user => {
+  firebase.auth().onAuthStateChanged(async user => {
     if (user) {
       currentUser = user;
-      showApp(user);
-      startDataListener(user.uid);
+      setDbStatus(true);
+      await resolveRole(user);
     } else {
       currentUser = null;
-      stopDataListener();
-      showAuth();
+      userRole    = null;
+      document.getElementById('auth-overlay').style.display = 'flex';
+      document.getElementById('app').style.display          = 'none';
     }
   });
 }
 
-// ── Listener de dados filtrado por usuário ────────────
+async function resolveRole(user) {
+  const adminDoc = await db.collection('admins').doc(user.email).get();
 
-function startDataListener(uid) {
-  stopDataListener(); // garante que não duplica
+  // Preenche info do usuário na sidebar
+  const name = user.displayName || user.email.split('@')[0];
+  document.getElementById('user-name').textContent   = name;
+  document.getElementById('user-email').textContent  = user.email;
+  document.getElementById('user-avatar').textContent = name.charAt(0).toUpperCase();
 
-  setDbStatus(true);
+  document.getElementById('auth-overlay').style.display = 'none';
+  document.getElementById('app').style.display          = 'grid';
 
-  // Cada usuário lê SOMENTE seus próprios agendamentos
-  unsubscribe = db.collection('agendamentos')
-    .where('uid', '==', uid)
-    .orderBy('createdAt', 'desc')
-    .onSnapshot(snapshot => {
-      appointments = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      refreshAll();
-    }, err => {
-      console.error('Listener error:', err);
-      setDbStatus(false);
-    });
+  if (adminDoc.exists) {
+    const data   = adminDoc.data();
+    userRole     = data.role;
+    adminEstabId = data.estabelecimentoId || null;
+    showAdminScreen(user, data);
+  } else {
+    userRole = 'client';
+    showClientHome(user);
+  }
 }
 
-function stopDataListener() {
+function stopListener() {
   if (unsubscribe) { unsubscribe(); unsubscribe = null; }
-  appointments = [];
 }
 
 // ══════════════════════════════════════════════════════
-//  AUTENTICAÇÃO
+//  AUTH
 // ══════════════════════════════════════════════════════
 
 function switchTab(tab) {
@@ -110,68 +133,47 @@ function switchTab(tab) {
   document.getElementById('form-register').style.display = isLogin ? 'none' : '';
   document.getElementById('tab-login').classList.toggle('active', isLogin);
   document.getElementById('tab-register').classList.toggle('active', !isLogin);
-  clearAuthErrors();
-}
-
-function clearAuthErrors() {
   document.getElementById('login-error').textContent = '';
   document.getElementById('reg-error').textContent   = '';
 }
 
-// Login com e-mail e senha
 async function loginEmail() {
   const email    = document.getElementById('login-email').value.trim();
   const password = document.getElementById('login-password').value;
   const errEl    = document.getElementById('login-error');
   errEl.textContent = '';
-
   if (!email || !password) { errEl.textContent = 'Preencha e-mail e senha.'; return; }
-
-  try {
-    await firebase.auth().signInWithEmailAndPassword(email, password);
-  } catch (e) {
-    errEl.textContent = authErrorMsg(e.code);
-  }
+  try { await firebase.auth().signInWithEmailAndPassword(email, password); }
+  catch(e) { errEl.textContent = authMsg(e.code); }
 }
 
-// Cadastro com e-mail e senha
 async function registerEmail() {
   const name     = document.getElementById('reg-name').value.trim();
   const email    = document.getElementById('reg-email').value.trim();
   const password = document.getElementById('reg-password').value;
   const errEl    = document.getElementById('reg-error');
   errEl.textContent = '';
-
-  if (!name)               { errEl.textContent = 'Informe seu nome.';            return; }
-  if (!email)              { errEl.textContent = 'Informe seu e-mail.';           return; }
+  if (!name)               { errEl.textContent = 'Informe seu nome.'; return; }
+  if (!email)              { errEl.textContent = 'Informe seu e-mail.'; return; }
   if (password.length < 6) { errEl.textContent = 'Senha mínima de 6 caracteres.'; return; }
-
   try {
     const cred = await firebase.auth().createUserWithEmailAndPassword(email, password);
     await cred.user.updateProfile({ displayName: name });
-  } catch (e) {
-    errEl.textContent = authErrorMsg(e.code);
-  }
+  } catch(e) { errEl.textContent = authMsg(e.code); }
 }
 
-// Login com Google
 async function loginGoogle() {
-  const provider = new firebase.auth.GoogleAuthProvider();
-  try {
-    await firebase.auth().signInWithPopup(provider);
-  } catch (e) {
-    document.getElementById('login-error').textContent = authErrorMsg(e.code);
-  }
+  try { await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider()); }
+  catch(e) { document.getElementById('login-error').textContent = authMsg(e.code); }
 }
 
-// Logout
 async function logout() {
+  stopListener();
   await firebase.auth().signOut();
 }
 
-// Mensagens de erro amigáveis
-function authErrorMsg(code) {
-  const msgs = {
+function authMsg(code) {
+  const m = {
     'auth/user-not-found':       'Usuário não encontrado.',
     'auth/wrong-password':       'Senha incorreta.',
     'auth/email-already-in-use': 'E-mail já cadastrado.',
@@ -180,94 +182,159 @@ function authErrorMsg(code) {
     'auth/popup-closed-by-user': 'Login cancelado.',
     'auth/invalid-credential':   'E-mail ou senha incorretos.',
   };
-  return msgs[code] || 'Erro ao autenticar. Tente novamente.';
+  return m[code] || 'Erro ao autenticar. Tente novamente.';
 }
 
-// ── Mostrar / ocultar telas ───────────────────────────
+// ══════════════════════════════════════════════════════
+//  NAVEGAÇÃO DE TELAS (dentro do main)
+// ══════════════════════════════════════════════════════
 
-function showAuth() {
-  document.getElementById('auth-overlay').style.display = 'flex';
-  document.getElementById('app').style.display          = 'none';
+function showMainScreen(id) {
+  ['screen-home','screen-booking','screen-admin'].forEach(s => {
+    document.getElementById(s).style.display = s === id ? '' : 'none';
+  });
 }
 
-function showApp(user) {
-  document.getElementById('auth-overlay').style.display = 'none';
-  document.getElementById('app').style.display          = 'grid';
+// ══════════════════════════════════════════════════════
+//  TELA HOME — CLIENTE (lista de estabelecimentos)
+// ══════════════════════════════════════════════════════
 
-  // Preenche info do usuário na sidebar
-  const name   = user.displayName || user.email.split('@')[0];
-  const letter = name.charAt(0).toUpperCase();
-  document.getElementById('user-name').textContent   = name;
-  document.getElementById('user-email').textContent  = user.email;
-  document.getElementById('user-avatar').textContent = letter;
+async function showClientHome(user) {
+  // Sidebar: mostra calendário, esconde painel admin
+  document.getElementById('sidebar-client').style.display = '';
+  document.getElementById('sidebar-admin').style.display  = 'none';
 
+  const name = user.displayName || user.email.split('@')[0];
+  document.getElementById('home-greeting').textContent = `Olá, ${name.split(' ')[0]}!`;
+
+  showMainScreen('screen-home');
+  renderMiniCal();
+  await loadEstabs();
+}
+
+async function loadEstabs() {
+  const grid = document.getElementById('estabs-grid');
+  grid.innerHTML = '<div class="loading-state"><i class="ti ti-loader-2"></i> Carregando...</div>';
+  const snap = await db.collection('estabelecimentos').where('ativo','==',true).get();
+  allEstabs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  renderEstabs(allEstabs);
+}
+
+function renderEstabs(list) {
+  const grid = document.getElementById('estabs-grid');
+  if (!list.length) {
+    grid.innerHTML = '<div class="empty-state">Nenhum estabelecimento encontrado.</div>';
+    return;
+  }
+  grid.innerHTML = list.map(e => `
+    <div class="estab-card" onclick="openBooking('${e.id}')">
+      <div class="estab-card-emoji">${CAT_EMOJI[e.categoria] || '💇'}</div>
+      <div class="estab-card-info">
+        <div class="estab-card-name">${e.nome}</div>
+        <div class="estab-card-cat">${CAT_LABEL[e.categoria] || e.categoria}</div>
+        <div class="estab-card-addr"><i class="ti ti-map-pin"></i> ${e.endereco || 'Endereço não informado'}</div>
+      </div>
+      <i class="ti ti-chevron-right" style="color:var(--muted)"></i>
+    </div>
+  `).join('');
+}
+
+function filterEstabs() {
+  const q = document.getElementById('search-input').value.toLowerCase();
+  let filtered = allEstabs.filter(e =>
+    e.nome.toLowerCase().includes(q) || (e.endereco||'').toLowerCase().includes(q)
+  );
+  if (activeCategory !== 'todos') filtered = filtered.filter(e => e.categoria === activeCategory);
+  renderEstabs(filtered);
+}
+
+function filterCategory(cat, btn) {
+  activeCategory = cat;
+  document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
+  btn.classList.add('active');
+  filterEstabs();
+}
+
+// ══════════════════════════════════════════════════════
+//  TELA AGENDAMENTO — CLIENTE
+// ══════════════════════════════════════════════════════
+
+async function openBooking(estabId) {
+  const snap   = await db.collection('estabelecimentos').doc(estabId).get();
+  currentEstab = { id: estabId, ...snap.data() };
+
+  selectedDate    = new Date();
+  currentDate     = new Date();
+  selectedService = null;
+  selectedSlot    = null;
+
+  document.getElementById('booking-estab-title').textContent = currentEstab.nome;
+  document.getElementById('main-date-sub').textContent =
+    `${CAT_LABEL[currentEstab.categoria] || ''} — Selecione um horário`;
+
+  // Pré-preenche nome e email do cliente logado
+  const name = currentUser.displayName || '';
+  if (name) document.getElementById('inp-name').value  = name;
+  document.getElementById('inp-email').value = currentUser.email || '';
+
+  showMainScreen('screen-booking');
+  renderServices();
   renderMiniCal();
   renderMainDate();
-  renderServices();
+  startBookingListener(estabId);
 }
 
-// ── Status do banco ───────────────────────────────────
-
-function setDbStatus(online) {
-  const dot   = document.getElementById('db-dot');
-  const label = document.getElementById('db-label');
-  dot.style.background = online ? '#2ecc71' : '#f39c12';
-  label.textContent    = online ? 'Firebase conectado' : 'Modo offline';
+function startBookingListener(estabId) {
+  stopListener();
+  unsubscribe = db.collection('agendamentos')
+    .where('estabelecimentoId','==', estabId)
+    .onSnapshot(snap => {
+      appointments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderSlots();
+      renderAppointments();
+      renderUpcoming();
+      updateCounts();
+    });
 }
 
-// ── Atualização geral ─────────────────────────────────
-
-function refreshAll() {
-  renderMiniCal();
-  renderSlots();
-  renderAppointments();
-  renderUpcoming();
-  updateCounts();
+function goHome() {
+  stopListener();
+  currentEstab    = null;
+  selectedService = null;
+  selectedSlot    = null;
+  appointments    = [];
+  showMainScreen('screen-home');
 }
 
-// ══════════════════════════════════════════════════════
-//  CALENDÁRIO
-// ══════════════════════════════════════════════════════
+// ── Sidebar calendário ────────────────────────────────
 
 function renderMiniCal() {
   const y = currentDate.getFullYear();
   const m = currentDate.getMonth();
-
   document.getElementById('mini-month-year').textContent = `${PT_MONTHS[m]} ${y}`;
 
   const firstWeekday = new Date(y, m, 1).getDay();
-  const daysInMonth  = new Date(y, m + 1, 0).getDate();
+  const daysInMonth  = new Date(y, m+1, 0).getDate();
   const daysInPrev   = new Date(y, m, 0).getDate();
-  const today        = new Date();
+  const todayD       = new Date();
 
-  let html = '', totalCells = 0;
-
+  let html = '', cells = 0;
   for (let i = firstWeekday - 1; i >= 0; i--) {
-    html += `<div class="day-cell other-month">${daysInPrev - i}</div>`;
-    totalCells++;
+    html += `<div class="day-cell other-month">${daysInPrev - i}</div>`; cells++;
   }
-
   for (let d = 1; d <= daysInMonth; d++) {
     const thisDate   = new Date(y, m, d);
-    const isToday    = today.getDate()===d && today.getMonth()===m && today.getFullYear()===y;
+    const isToday    = todayD.getDate()===d && todayD.getMonth()===m && todayD.getFullYear()===y;
     const isSelected = selectedDate.getDate()===d && selectedDate.getMonth()===m && selectedDate.getFullYear()===y;
     const hasEvent   = appointments.some(a => a.dateKey === fmtKey(thisDate));
-
     let cls = 'day-cell';
     if (isToday)    cls += ' today';
     if (isSelected) cls += ' selected';
     if (hasEvent)   cls += ' has-event';
-
-    html += `<div class="${cls}" onclick="selectDay(${y},${m},${d})">${d}</div>`;
-    totalCells++;
+    html += `<div class="${cls}" onclick="selectDay(${y},${m},${d})">${d}</div>`; cells++;
   }
-
   let next = 1;
-  while (totalCells % 7 !== 0) {
-    html += `<div class="day-cell other-month">${next++}</div>`;
-    totalCells++;
-  }
-
+  while (cells % 7 !== 0) { html += `<div class="day-cell other-month">${next++}</div>`; cells++; }
   document.getElementById('mini-days').innerHTML = html;
 }
 
@@ -288,19 +355,17 @@ function selectDay(y, m, d) {
 
 function renderMainDate() {
   const d = selectedDate;
-  document.getElementById('main-date-title').textContent =
-    `${PT_DAYS[d.getDay()]}, ${d.getDate()} de ${PT_MONTHS[d.getMonth()]}`;
+  document.getElementById('booking-estab-title').textContent = currentEstab ? currentEstab.nome : '';
   document.getElementById('main-date-sub').textContent =
-    `${PT_MONTHS[d.getMonth()]} ${d.getFullYear()} — Selecione um horário`;
+    `${PT_DAYS[d.getDay()]}, ${d.getDate()} de ${PT_MONTHS[d.getMonth()]}`;
 }
 
-// ══════════════════════════════════════════════════════
-//  SERVIÇOS
-// ══════════════════════════════════════════════════════
+// ── Serviços ──────────────────────────────────────────
 
 function renderServices() {
-  document.getElementById('services-grid').innerHTML = SERVICES.map(s => `
-    <div class="service-card ${selectedService === s.id ? 'selected-service' : ''}"
+  const services = SERVICES_BY_CAT[currentEstab.categoria] || SERVICES_BY_CAT.salao;
+  document.getElementById('services-grid').innerHTML = services.map(s => `
+    <div class="service-card ${selectedService===s.id ? 'selected-service' : ''}"
          onclick="selectService('${s.id}')">
       <div class="service-icon">${s.icon}</div>
       <div class="service-name">${s.name}</div>
@@ -316,14 +381,11 @@ function selectService(id) {
   renderSlots();
 }
 
-// ══════════════════════════════════════════════════════
-//  HORÁRIOS
-// ══════════════════════════════════════════════════════
+// ── Horários ──────────────────────────────────────────
 
 function renderSlots() {
   const dateKey = fmtKey(selectedDate);
   const booked  = appointments.filter(a => a.dateKey === dateKey).map(a => a.time);
-
   document.getElementById('time-slots').innerHTML = ALL_SLOTS.map(t => {
     const isBooked = booked.includes(t);
     const isSel    = selectedSlot === t;
@@ -335,14 +397,9 @@ function renderSlots() {
   }).join('');
 }
 
-function selectSlot(t) {
-  selectedSlot = t;
-  renderSlots();
-}
+function selectSlot(t) { selectedSlot = t; renderSlots(); }
 
-// ══════════════════════════════════════════════════════
-//  CONFIRMAÇÃO
-// ══════════════════════════════════════════════════════
+// ── Confirmação ───────────────────────────────────────
 
 async function confirmBooking() {
   const name  = document.getElementById('inp-name').value.trim();
@@ -350,56 +407,57 @@ async function confirmBooking() {
   const email = document.getElementById('inp-email').value.trim();
   const obs   = document.getElementById('inp-obs').value.trim();
 
-  if (!name)            { showToast('⚠ Informe o nome do cliente.');  return; }
-  if (!selectedSlot)    { showToast('⚠ Selecione um horário.');        return; }
-  if (!selectedService) { showToast('⚠ Selecione um serviço.');        return; }
+  if (!name)            { showToast('⚠ Informe seu nome.');     return; }
+  if (!selectedService) { showToast('⚠ Selecione um serviço.'); return; }
+  if (!selectedSlot)    { showToast('⚠ Selecione um horário.'); return; }
 
-  const svc  = SERVICES.find(s => s.id === selectedService);
-  const btn  = document.querySelector('.btn-confirm');
-  btn.disabled    = true;
-  btn.textContent = 'Salvando...';
+  const services = SERVICES_BY_CAT[currentEstab.categoria] || SERVICES_BY_CAT.salao;
+  const svc      = services.find(s => s.id === selectedService);
+  const btn      = document.querySelector('.btn-confirm');
+  btn.disabled = true; btn.textContent = 'Salvando...';
 
   try {
     await db.collection('agendamentos').add({
-      uid:         currentUser.uid,   // ← chave de isolamento por usuário
-      name, phone, email, obs,
-      time:        selectedSlot,
-      serviceName: svc.name,
-      serviceId:   selectedService,
-      dateKey:     fmtKey(selectedDate),
-      year:        selectedDate.getFullYear(),
-      month:       selectedDate.getMonth(),
-      day:         selectedDate.getDate(),
-      createdAt:   firebase.firestore.FieldValue.serverTimestamp(),
+      uid:                 currentUser.uid,
+      clienteName:         name,
+      clienteEmail:        email,
+      clientePhone:        phone,
+      obs,
+      time:                selectedSlot,
+      serviceName:         svc.name,
+      serviceId:           selectedService,
+      dateKey:             fmtKey(selectedDate),
+      year:                selectedDate.getFullYear(),
+      month:               selectedDate.getMonth(),
+      day:                 selectedDate.getDate(),
+      estabelecimentoId:   currentEstab.id,
+      estabelecimentoNome: currentEstab.nome,
+      status:              'confirmado',
+      createdAt:           firebase.firestore.FieldValue.serverTimestamp(),
     });
-
-    ['inp-name','inp-phone','inp-email','inp-obs'].forEach(id => {
-      document.getElementById(id).value = '';
-    });
+    document.getElementById('inp-phone').value = '';
+    document.getElementById('inp-obs').value   = '';
     selectedSlot = null;
     showToast('✓ Agendamento confirmado!');
-  } catch (e) {
+  } catch(e) {
     console.error(e);
     showToast('❌ Erro ao salvar. Tente novamente.');
   } finally {
-    btn.disabled    = false;
-    btn.textContent = 'Confirmar Agendamento';
+    btn.disabled = false; btn.textContent = 'Confirmar Agendamento';
   }
 }
 
-// ══════════════════════════════════════════════════════
-//  LISTA DE AGENDAMENTOS
-// ══════════════════════════════════════════════════════
+// ── Lista de agendamentos do dia ──────────────────────
 
 function renderAppointments() {
   const dateKey = fmtKey(selectedDate);
   const list    = appointments
-    .filter(a => a.dateKey === dateKey)
-    .sort((a, b) => a.time.localeCompare(b.time));
+    .filter(a => a.dateKey === dateKey && a.uid === currentUser.uid)
+    .sort((a,b) => a.time.localeCompare(b.time));
 
-  document.getElementById('appts-label').textContent = `Agendamentos — ${fmt(selectedDate)}`;
-
+  document.getElementById('appts-label').textContent = `Meus agendamentos — ${fmt(selectedDate)}`;
   const container = document.getElementById('appointments-list');
+
   if (!list.length) {
     container.innerHTML = `
       <div class="empty-state">
@@ -410,11 +468,11 @@ function renderAppointments() {
   }
 
   container.innerHTML = list.map(a => `
-    <div class="appt-card" id="appt-${a.id}">
+    <div class="appt-card">
       <div class="appt-time-badge">${a.time}</div>
       <div class="appt-info">
-        <div class="appt-name">${a.name}</div>
-        <div class="appt-service">${a.serviceName} · ${a.phone || '—'}</div>
+        <div class="appt-name">${a.clienteName}</div>
+        <div class="appt-service">${a.serviceName} · ${a.clientePhone || '—'}</div>
       </div>
       <span class="appt-status status-confirmed">Confirmado</span>
       <button class="btn-cancel-appt" onclick="cancelAppt('${a.id}')">Cancelar</button>
@@ -423,70 +481,210 @@ function renderAppointments() {
 }
 
 async function cancelAppt(id) {
-  try {
-    await db.collection('agendamentos').doc(id).delete();
-    showToast('Agendamento cancelado.');
-  } catch (e) {
-    console.error(e);
-    showToast('❌ Erro ao cancelar.');
-  }
+  try { await db.collection('agendamentos').doc(id).delete(); showToast('Agendamento cancelado.'); }
+  catch(e) { showToast('❌ Erro ao cancelar.'); }
 }
 
-// ══════════════════════════════════════════════════════
-//  SIDEBAR — PRÓXIMOS
-// ══════════════════════════════════════════════════════
+// ── Próximos (sidebar) ────────────────────────────────
 
 function renderUpcoming() {
+  if (userRole !== 'client') return;
   const now = new Date();
   const upcoming = appointments
     .filter(a => {
+      if (a.uid !== currentUser.uid) return false;
       const [h, m] = a.time.split(':').map(Number);
       return new Date(a.year, a.month, a.day, h, m) >= now;
     })
-    .sort((a, b) => {
+    .sort((a,b) => {
       const da = new Date(a.year, a.month, a.day, ...a.time.split(':').map(Number));
       const db = new Date(b.year, b.month, b.day, ...b.time.split(':').map(Number));
       return da - db;
     })
-    .slice(0, 4);
+    .slice(0,4);
 
   document.getElementById('upcoming-list').innerHTML = upcoming.length
     ? upcoming.map(a => `
         <div class="upcoming-item">
           <div class="upcoming-dot"></div>
           <div class="upcoming-info">
-            <div class="upcoming-title">${a.name}</div>
+            <div class="upcoming-title">${a.serviceName}</div>
             <div class="upcoming-time">
-              ${a.serviceName} · ${String(a.day).padStart(2,'0')}/${String(a.month+1).padStart(2,'0')} às ${a.time}
+              ${String(a.day).padStart(2,'0')}/${String(a.month+1).padStart(2,'0')} às ${a.time}
             </div>
           </div>
         </div>`).join('')
     : `<div style="font-size:0.75rem;color:rgba(255,255,255,0.3)">Sem agendamentos futuros.</div>`;
 }
 
-// ══════════════════════════════════════════════════════
-//  CONTADORES
-// ══════════════════════════════════════════════════════
+// ── Contadores ────────────────────────────────────────
 
 function updateCounts() {
-  const today     = new Date();
-  const todayKey  = fmtKey(today);
-  const weekStart = new Date(today); weekStart.setDate(today.getDate() - today.getDay());
+  const todayD    = new Date();
+  const todayKey  = fmtKey(todayD);
+  const weekStart = new Date(todayD); weekStart.setDate(todayD.getDate() - todayD.getDay());
   const weekEnd   = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);
+  const mine      = appointments.filter(a => a.uid === currentUser.uid);
 
   document.getElementById('count-today').textContent =
-    appointments.filter(a => a.dateKey === todayKey).length;
+    mine.filter(a => a.dateKey === todayKey).length;
   document.getElementById('count-week').textContent =
-    appointments.filter(a => {
-      const d = new Date(a.year, a.month, a.day);
-      return d >= weekStart && d <= weekEnd;
-    }).length;
-  document.getElementById('count-total').textContent = appointments.length;
+    mine.filter(a => { const d=new Date(a.year,a.month,a.day); return d>=weekStart&&d<=weekEnd; }).length;
+  document.getElementById('count-total').textContent = mine.length;
 }
 
 // ══════════════════════════════════════════════════════
-//  TOAST / AUX
+//  PAINEL ADMIN
 // ══════════════════════════════════════════════════════
+
+async function showAdminScreen(user, adminData) {
+  // Sidebar: mostra painel admin, esconde calendário
+  document.getElementById('sidebar-client').style.display = 'none';
+  document.getElementById('sidebar-admin').style.display  = '';
+
+  const estabNome = adminData.estabelecimentoNome || 'Admin';
+  document.getElementById('admin-estab-name-sidebar').textContent = estabNome;
+  document.getElementById('admin-title').textContent    = `Painel — ${estabNome}`;
+  document.getElementById('admin-subtitle').textContent = 'Todos os agendamentos';
+
+  if (userRole === 'superadmin') {
+    document.getElementById('superadmin-sidebar').style.display    = '';
+    document.getElementById('admin-estab-select').style.display    = '';
+    await loadEstabsForSelect();
+  }
+
+  // Define data padrão como hoje
+  document.getElementById('admin-date-filter').value = new Date().toISOString().split('T')[0];
+
+  showMainScreen('screen-admin');
+  await loadAdminData();
+}
+
+async function loadEstabsForSelect() {
+  const snap   = await db.collection('estabelecimentos').get();
+  const select = document.getElementById('admin-estab-select');
+  snap.docs.forEach(d => {
+    const opt = document.createElement('option');
+    opt.value = d.id;
+    opt.textContent = d.data().nome;
+    select.appendChild(opt);
+  });
+}
+
+async function loadAdminData() {
+  stopListener();
+
+  let estabId = adminEstabId;
+
+  if (userRole === 'superadmin') {
+    estabId = document.getElementById('admin-estab-select').value;
+    if (!estabId) { document.getElementById('admin-appointments-list').innerHTML = ''; return; }
+  }
+
+  unsubscribe = db.collection('agendamentos')
+    .where('estabelecimentoId','==', estabId)
+    .onSnapshot(snap => {
+      appointments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      renderAdminList();
+      updateAdminCounts();
+    });
+}
+
+function renderAdminList() {
+  const filterDate = document.getElementById('admin-date-filter').value;
+  let list = [...appointments];
+
+  if (filterDate) {
+    const [fy,fm,fd] = filterDate.split('-').map(Number);
+    list = list.filter(a => a.year===fy && a.month===(fm-1) && a.day===fd);
+  }
+
+  list.sort((a,b) => a.time.localeCompare(b.time));
+
+  const container = document.getElementById('admin-appointments-list');
+  if (!list.length) {
+    container.innerHTML = '<div class="empty-state">Nenhum agendamento nesta data.</div>';
+    return;
+  }
+
+  container.innerHTML = list.map(a => `
+    <div class="appt-card admin-appt-card">
+      <div class="appt-time-badge">${String(a.day).padStart(2,'0')}/${String(a.month+1).padStart(2,'0')}<br>${a.time}</div>
+      <div class="appt-info">
+        <div class="appt-name">${a.clienteName}</div>
+        <div class="appt-service">${a.serviceName} · ${a.clientePhone || '—'}</div>
+        <div class="appt-email">${a.clienteEmail || ''}</div>
+      </div>
+      <span class="appt-status status-confirmed">Confirmado</span>
+      <button class="btn-cancel-appt" onclick="adminCancelAppt('${a.id}')">Cancelar</button>
+    </div>
+  `).join('');
+}
+
+function clearDateFilter() {
+  document.getElementById('admin-date-filter').value = '';
+  renderAdminList();
+}
+
+async function adminCancelAppt(id) {
+  if (!confirm('Cancelar este agendamento?')) return;
+  try { await db.collection('agendamentos').doc(id).delete(); showToast('Agendamento cancelado.'); }
+  catch(e) { showToast('❌ Erro ao cancelar.'); }
+}
+
+function updateAdminCounts() {
+  const todayD    = new Date();
+  const todayKey  = fmtKey(todayD);
+  const weekStart = new Date(todayD); weekStart.setDate(todayD.getDate() - todayD.getDay());
+  const weekEnd   = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);
+
+  document.getElementById('adm-today').textContent =
+    appointments.filter(a => a.dateKey === todayKey).length;
+  document.getElementById('adm-week').textContent =
+    appointments.filter(a => { const d=new Date(a.year,a.month,a.day); return d>=weekStart&&d<=weekEnd; }).length;
+  document.getElementById('adm-total').textContent = appointments.length;
+}
+
+// ── Cadastrar estabelecimento (super admin) ───────────
+
+async function createEstab() {
+  const nome       = document.getElementById('new-estab-name').value.trim();
+  const categoria  = document.getElementById('new-estab-cat').value;
+  const endereco   = document.getElementById('new-estab-addr').value.trim();
+  const adminEmail = document.getElementById('new-estab-admin-email').value.trim();
+
+  if (!nome || !adminEmail) { showToast('⚠ Preencha nome e e-mail do admin.'); return; }
+
+  try {
+    const ref = await db.collection('estabelecimentos').add({
+      nome, categoria, endereco, ativo: true,
+      criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    });
+    await db.collection('admins').doc(adminEmail).set({
+      role: 'admin',
+      estabelecimentoId:   ref.id,
+      estabelecimentoNome: nome,
+      email: adminEmail,
+    });
+    ['new-estab-name','new-estab-addr','new-estab-admin-email'].forEach(id => {
+      document.getElementById(id).value = '';
+    });
+    showToast(`✓ "${nome}" cadastrado!`);
+    await loadEstabsForSelect();
+  } catch(e) {
+    console.error(e);
+    showToast('❌ Erro ao cadastrar.');
+  }
+}
+
+// ══════════════════════════════════════════════════════
+//  STATUS DB / TOAST / AUX
+// ══════════════════════════════════════════════════════
+
+function setDbStatus(online) {
+  document.getElementById('db-dot').style.background = online ? '#2ecc71' : '#f39c12';
+  document.getElementById('db-label').textContent    = online ? 'Firebase conectado' : 'Modo offline';
+}
 
 function showToast(msg) {
   const t = document.getElementById('toast');
@@ -498,7 +696,5 @@ function showToast(msg) {
 function scrollToForm() {
   document.getElementById('booking-form').scrollIntoView({ behavior: 'smooth' });
 }
-
-// ── Inicialização ─────────────────────────────────────
 
 document.addEventListener('DOMContentLoaded', initFirebase);
