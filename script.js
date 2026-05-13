@@ -3,11 +3,6 @@
    Design original + multi-estabelecimento + admin
    ===================================================== */
 
-// ── EmailJS ───────────────────────────────────────────
-const EMAILJS_SERVICE_ID  = 'service_il5rffn';
-const EMAILJS_TEMPLATE_ID = 'template_1po3l5r';
-const EMAILJS_PUBLIC_KEY  = 'taEdsNCpa1v3M6xWx';
-
 // ── Dados ─────────────────────────────────────────────
 
 const ALL_SLOTS = [
@@ -39,6 +34,7 @@ const SERVICES_BY_CAT = {
     { id: 's2', icon: '🪒', name: 'Barba',             duration: '20 min' },
     { id: 's3', icon: '✂️', name: 'Corte + Barba',    duration: '45 min' },
     { id: 's4', icon: '💆', name: 'Pigmentação',       duration: '30 min' },
+    { id: 's5', icon: '👦', name: 'Corte Infantil',   duration: '20 min' },
   ],
 };
 
@@ -421,8 +417,6 @@ async function confirmBooking() {
   const btn      = document.querySelector('.btn-confirm');
   btn.disabled = true; btn.textContent = 'Salvando...';
 
-  const dataFormatada = `${String(selectedDate.getDate()).padStart(2,'0')}/${String(selectedDate.getMonth()+1).padStart(2,'0')}/${selectedDate.getFullYear()}`;
-
   try {
     // 1. Salva no Firestore
     await db.collection('agendamentos').add({
@@ -444,26 +438,11 @@ async function confirmBooking() {
       createdAt:           firebase.firestore.FieldValue.serverTimestamp(),
     });
 
-    // 2. Envia e-mail de confirmação via EmailJS
-    const emailDestino = email || currentUser.email;
-    if (emailDestino) {
-      emailjs.init(EMAILJS_PUBLIC_KEY);
-      await emailjs.send(EMAILJS_SERVICE_ID, EMAILJS_TEMPLATE_ID, {
-        nome:            name,
-        estabelecimento: currentEstab.nome,
-        servico:         svc.name,
-        data:            dataFormatada,
-        horario:         selectedSlot,
-        telefone:        phone || '—',
-        observacao:      obs   || '—',
-        email_destino:   emailDestino,
-      });
-    }
 
     document.getElementById('inp-phone').value = '';
     document.getElementById('inp-obs').value   = '';
     selectedSlot = null;
-    showToast('✓ Agendamento confirmado! E-mail enviado.');
+    showToast('✓ Agendamento confirmado!');
   } catch(e) {
     console.error(e);
     showToast('❌ Erro ao salvar. Tente novamente.');
