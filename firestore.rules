@@ -1,0 +1,84 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null && request.auth.token.email != null;
+    }
+
+    function adminDoc() {
+      return get(/databases/$(database)/documents/admins/$(request.auth.token.email));
+    }
+
+    function isSuperAdmin() {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.token.email)) &&
+        adminDoc().data.role == 'superadmin';
+    }
+
+    function isAdminFor(estabelecimentoId) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/admins/$(request.auth.token.email)) &&
+        (
+          adminDoc().data.role == 'superadmin' ||
+          (
+            adminDoc().data.role == 'admin' &&
+            adminDoc().data.estabelecimentoId == estabelecimentoId
+          )
+        );
+    }
+
+    function validString(value, maxSize) {
+      return value is string && value.size() > 0 && value.size() <= maxSize;
+    }
+
+    function validOptionalString(value, maxSize) {
+      return value == null || value == '' || (value is string && value.size() <= maxSize);
+    }
+
+    match /admins/{email} {
+      allow read: if signedIn() && (request.auth.token.email == email || isSuperAdmin());
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    match /estabelecimentos/{estabelecimentoId} {
+      allow read: if signedIn();
+      allow create, update, delete: if isSuperAdmin();
+    }
+
+    match /agendamentos/{agendamentoId} {
+      allow read: if signedIn() &&
+        (
+          resource.data.uid == request.auth.uid ||
+          isAdminFor(resource.data.estabelecimentoId)
+        );
+
+      allow create: if signedIn() &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.clienteEmail == request.auth.token.email &&
+        request.resource.data.status == 'confirmado' &&
+        request.resource.data.createdAt == request.time &&
+        validString(request.resource.data.clienteName, 120) &&
+        validOptionalString(request.resource.data.clientePhone, 20) &&
+        validOptionalString(request.resource.data.obs, 500) &&
+        validString(request.resource.data.time, 5) &&
+        validString(request.resource.data.serviceName, 80) &&
+        validString(request.resource.data.serviceId, 30) &&
+        validString(request.resource.data.dateKey, 20) &&
+        validString(request.resource.data.estabelecimentoId, 128) &&
+        validString(request.resource.data.estabelecimentoNome, 120);
+
+      allow update: if false;
+
+      allow delete: if signedIn() &&
+        (
+          resource.data.uid == request.auth.uid ||
+          isAdminFor(resource.data.estabelecimentoId)
+        );
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

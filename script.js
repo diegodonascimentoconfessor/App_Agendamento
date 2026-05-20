@@ -45,6 +45,67 @@ const PT_MONTHS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
                    'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 const PT_DAYS   = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 
+const CATEGORY_KEYS = new Set(['todos', ...Object.keys(CAT_LABEL)]);
+const TIME_SLOT_KEYS = new Set(ALL_SLOTS);
+
+function escapeHTML(value) {
+  return String(value ?? '').replace(/[&<>"']/g, char => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;',
+  }[char]));
+}
+
+function isSafeFirestoreId(value) {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(value);
+}
+
+function safeCategory(value) {
+  return CATEGORY_KEYS.has(value) ? value : 'salao';
+}
+
+function setupEventHandlers() {
+  document.addEventListener('click', event => {
+    const target = event.target.closest('[data-action]');
+    if (!target) return;
+
+    const action = target.dataset.action;
+    if (action === 'switch-tab') switchTab(target.dataset.tab);
+    if (action === 'login-email') loginEmail();
+    if (action === 'login-google') loginGoogle();
+    if (action === 'register-email') registerEmail();
+    if (action === 'logout') logout();
+    if (action === 'change-month') changeMonth(Number(target.dataset.dir));
+    if (action === 'create-estab') createEstab();
+    if (action === 'filter-category') filterCategory(target.dataset.category, target);
+    if (action === 'open-booking') openBooking(target.dataset.id);
+    if (action === 'go-home') goHome();
+    if (action === 'scroll-to-form') scrollToForm();
+    if (action === 'select-day') selectDay(Number(target.dataset.year), Number(target.dataset.month), Number(target.dataset.day));
+    if (action === 'select-service') selectService(target.dataset.id);
+    if (action === 'select-slot') selectSlot(target.dataset.time);
+    if (action === 'confirm-booking') confirmBooking();
+    if (action === 'cancel-appt') cancelAppt(target.dataset.id);
+    if (action === 'admin-cancel-appt') adminCancelAppt(target.dataset.id);
+    if (action === 'clear-date-filter') clearDateFilter();
+  });
+
+  document.addEventListener('keydown', event => {
+    if ((event.key !== 'Enter' && event.key !== ' ') || !event.target.matches('[data-action="select-service"]')) return;
+    event.preventDefault();
+    selectService(event.target.dataset.id);
+  });
+
+  document.getElementById('search-input').addEventListener('input', filterEstabs);
+  document.getElementById('inp-phone').addEventListener('input', event => {
+    event.target.value = event.target.value.replace(/[^0-9()\s-]/g, '');
+  });
+  document.getElementById('admin-estab-select').addEventListener('change', loadAdminData);
+  document.getElementById('admin-date-filter').addEventListener('change', renderAdminList);
+}
+
 // ── Estado ────────────────────────────────────────────
 
 let db              = null;
@@ -129,6 +190,7 @@ function stopListener() {
 // ══════════════════════════════════════════════════════
 
 function switchTab(tab) {
+  if (!['login', 'register'].includes(tab)) return;
   const isLogin = tab === 'login';
   document.getElementById('form-login').style.display    = isLogin ? '' : 'none';
   document.getElementById('form-register').style.display = isLogin ? 'none' : '';
@@ -224,32 +286,40 @@ async function loadEstabs() {
 function renderEstabs(list) {
   const grid = document.getElementById('estabs-grid');
   if (!list.length) {
-    grid.innerHTML = '<div class="empty-state">Nenhum estabelecimento encontrado.</div>';
+    grid.textContent = '';
+    const empty = document.createElement('div');
+    empty.className = 'empty-state';
+    empty.textContent = 'Nenhum estabelecimento encontrado.';
+    grid.appendChild(empty);
     return;
   }
-  grid.innerHTML = list.map(e => `
-    <div class="estab-card" onclick="openBooking('${e.id}')">
-      <div class="estab-card-emoji">${CAT_EMOJI[e.categoria] || '💇'}</div>
+  grid.innerHTML = list.map(e => {
+    const categoria = safeCategory(e.categoria);
+    const id = isSafeFirestoreId(e.id) ? e.id : '';
+    return `
+    <button type="button" class="estab-card" data-action="open-booking" data-id="${escapeHTML(id)}">
+      <div class="estab-card-emoji">${escapeHTML(CAT_EMOJI[categoria] || '💇')}</div>
       <div class="estab-card-info">
-        <div class="estab-card-name">${e.nome}</div>
-        <div class="estab-card-cat">${CAT_LABEL[e.categoria] || e.categoria}</div>
-        <div class="estab-card-addr"><i class="ti ti-map-pin"></i> ${e.endereco || 'Endereço não informado'}</div>
+        <div class="estab-card-name">${escapeHTML(e.nome)}</div>
+        <div class="estab-card-cat">${escapeHTML(CAT_LABEL[categoria] || categoria)}</div>
+        <div class="estab-card-addr"><i class="ti ti-map-pin"></i> ${escapeHTML(e.endereco || 'Endereço não informado')}</div>
       </div>
       <i class="ti ti-chevron-right" style="color:var(--muted)"></i>
-    </div>
-  `).join('');
+    </button>
+  `}).join('');
 }
 
 function filterEstabs() {
   const q = document.getElementById('search-input').value.toLowerCase();
   let filtered = allEstabs.filter(e =>
-    e.nome.toLowerCase().includes(q) || (e.endereco||'').toLowerCase().includes(q)
+    String(e.nome || '').toLowerCase().includes(q) || String(e.endereco || '').toLowerCase().includes(q)
   );
   if (activeCategory !== 'todos') filtered = filtered.filter(e => e.categoria === activeCategory);
   renderEstabs(filtered);
 }
 
 function filterCategory(cat, btn) {
+  if (!CATEGORY_KEYS.has(cat)) return;
   activeCategory = cat;
   document.querySelectorAll('.chip').forEach(c => c.classList.remove('active'));
   btn.classList.add('active');
@@ -261,8 +331,11 @@ function filterCategory(cat, btn) {
 // ══════════════════════════════════════════════════════
 
 async function openBooking(estabId) {
+  if (!isSafeFirestoreId(estabId)) return;
   const snap   = await db.collection('estabelecimentos').doc(estabId).get();
+  if (!snap.exists) { showToast('Estabelecimento não encontrado.'); return; }
   currentEstab = { id: estabId, ...snap.data() };
+  currentEstab.categoria = safeCategory(currentEstab.categoria);
 
   selectedDate    = new Date();
   currentDate     = new Date();
@@ -332,7 +405,7 @@ function renderMiniCal() {
     if (isToday)    cls += ' today';
     if (isSelected) cls += ' selected';
     if (hasEvent)   cls += ' has-event';
-    html += `<div class="${cls}" onclick="selectDay(${y},${m},${d})">${d}</div>`; cells++;
+    html += `<button type="button" class="${cls}" data-action="select-day" data-year="${y}" data-month="${m}" data-day="${d}">${d}</button>`; cells++;
   }
   let next = 1;
   while (cells % 7 !== 0) { html += `<div class="day-cell other-month">${next++}</div>`; cells++; }
@@ -340,11 +413,13 @@ function renderMiniCal() {
 }
 
 function changeMonth(dir) {
+  if (![1, -1].includes(dir)) return;
   currentDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + dir, 1);
   renderMiniCal();
 }
 
 function selectDay(y, m, d) {
+  if (!Number.isInteger(y) || !Number.isInteger(m) || !Number.isInteger(d)) return;
   selectedDate = new Date(y, m, d);
   currentDate  = new Date(y, m, 1);
   selectedSlot = null;
@@ -367,15 +442,17 @@ function renderServices() {
   const services = SERVICES_BY_CAT[currentEstab.categoria] || SERVICES_BY_CAT.salao;
   document.getElementById('services-grid').innerHTML = services.map(s => `
     <div class="service-card ${selectedService===s.id ? 'selected-service' : ''}"
-         onclick="selectService('${s.id}')">
-      <div class="service-icon">${s.icon}</div>
-      <div class="service-name">${s.name}</div>
-      <div class="service-duration">${s.duration}</div>
+         data-action="select-service" data-id="${escapeHTML(s.id)}" role="button" tabindex="0">
+      <div class="service-icon">${escapeHTML(s.icon)}</div>
+      <div class="service-name">${escapeHTML(s.name)}</div>
+      <div class="service-duration">${escapeHTML(s.duration)}</div>
     </div>
   `).join('');
 }
 
 function selectService(id) {
+  const services = SERVICES_BY_CAT[currentEstab?.categoria] || SERVICES_BY_CAT.salao;
+  if (!services.some(s => s.id === id)) return;
   selectedService = id;
   selectedSlot    = null;
   renderServices();
@@ -393,12 +470,16 @@ function renderSlots() {
     let cls = 'slot';
     if (isBooked)   cls += ' booked';
     else if (isSel) cls += ' selected-slot';
-    const click = isBooked ? '' : `onclick="selectSlot('${t}')"`;
-    return `<div class="${cls}" ${click}>${t}</div>`;
+    const action = isBooked ? '' : `data-action="select-slot" data-time="${escapeHTML(t)}"`;
+    return `<button type="button" class="${cls}" ${action}>${escapeHTML(t)}</button>`;
   }).join('');
 }
 
-function selectSlot(t) { selectedSlot = t; renderSlots(); }
+function selectSlot(t) {
+  if (!TIME_SLOT_KEYS.has(t)) return;
+  selectedSlot = t;
+  renderSlots();
+}
 
 // ── Confirmação ───────────────────────────────────────
 
@@ -409,33 +490,56 @@ async function confirmBooking() {
   const obs   = document.getElementById('inp-obs').value.trim();
 
   if (!name)            { showToast('⚠ Informe seu nome.');     return; }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { showToast('⚠ Informe um e-mail válido.'); return; }
   if (!selectedService) { showToast('⚠ Selecione um serviço.'); return; }
   if (!selectedSlot)    { showToast('⚠ Selecione um horário.'); return; }
 
   const services = SERVICES_BY_CAT[currentEstab.categoria] || SERVICES_BY_CAT.salao;
   const svc      = services.find(s => s.id === selectedService);
+  if (!svc || !TIME_SLOT_KEYS.has(selectedSlot) || !isSafeFirestoreId(currentEstab.id)) {
+    showToast('⚠ Dados do agendamento inválidos.');
+    return;
+  }
+  const [slotHour, slotMinute] = selectedSlot.split(':').map(Number);
+  const selectedDateTime = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate(), slotHour, slotMinute);
+  if (selectedDateTime < new Date()) { showToast('⚠ Escolha um horário futuro.'); return; }
+
   const btn      = document.querySelector('.btn-confirm');
   btn.disabled = true; btn.textContent = 'Salvando...';
 
   try {
-    // 1. Salva no Firestore
-    await db.collection('agendamentos').add({
-      uid:                 currentUser.uid,
-      clienteName:         name,
-      clienteEmail:        email,
-      clientePhone:        phone,
-      obs,
-      time:                selectedSlot,
-      serviceName:         svc.name,
-      serviceId:           selectedService,
-      dateKey:             fmtKey(selectedDate),
-      year:                selectedDate.getFullYear(),
-      month:               selectedDate.getMonth(),
-      day:                 selectedDate.getDate(),
-      estabelecimentoId:   currentEstab.id,
-      estabelecimentoNome: currentEstab.nome,
-      status:              'confirmado',
-      createdAt:           firebase.firestore.FieldValue.serverTimestamp(),
+    const bookingId = [
+      currentEstab.id,
+      fmtKey(selectedDate).replace(/-/g, ''),
+      selectedSlot.replace(':', ''),
+    ].join('_');
+    const bookingRef = db.collection('agendamentos').doc(bookingId);
+
+    await db.runTransaction(async transaction => {
+      const existing = await transaction.get(bookingRef);
+      if (existing.exists) {
+        const err = new Error('slot-unavailable');
+        err.code = 'slot-unavailable';
+        throw err;
+      }
+      transaction.set(bookingRef, {
+        uid:                 currentUser.uid,
+        clienteName:         name.slice(0, 120),
+        clienteEmail:        currentUser.email || email,
+        clientePhone:        phone.slice(0, 20),
+        obs:                 obs.slice(0, 500),
+        time:                selectedSlot,
+        serviceName:         svc.name,
+        serviceId:           selectedService,
+        dateKey:             fmtKey(selectedDate),
+        year:                selectedDate.getFullYear(),
+        month:               selectedDate.getMonth(),
+        day:                 selectedDate.getDate(),
+        estabelecimentoId:   currentEstab.id,
+        estabelecimentoNome: currentEstab.nome,
+        status:              'confirmado',
+        createdAt:           firebase.firestore.FieldValue.serverTimestamp(),
+      });
     });
 
 
@@ -445,7 +549,7 @@ async function confirmBooking() {
     showToast('✓ Agendamento confirmado!');
   } catch(e) {
     console.error(e);
-    showToast('❌ Erro ao salvar. Tente novamente.');
+    showToast(e.code === 'slot-unavailable' ? '⚠ Este horário acabou de ser reservado.' : '❌ Erro ao salvar. Tente novamente.');
   } finally {
     btn.disabled = false; btn.textContent = 'Confirmar Agendamento';
   }
@@ -471,21 +575,31 @@ function renderAppointments() {
     return;
   }
 
-  container.innerHTML = list.map(a => `
+  container.innerHTML = list.map(a => isSafeFirestoreId(a.id) ? `
     <div class="appt-card">
-      <div class="appt-time-badge">${a.time}</div>
+      <div class="appt-time-badge">${escapeHTML(a.time)}</div>
       <div class="appt-info">
-        <div class="appt-name">${a.clienteName}</div>
-        <div class="appt-service">${a.serviceName} · ${a.clientePhone || '—'}</div>
+        <div class="appt-name">${escapeHTML(a.clienteName)}</div>
+        <div class="appt-service">${escapeHTML(a.serviceName)} · ${escapeHTML(a.clientePhone || '—')}</div>
       </div>
       <span class="appt-status status-confirmed">Confirmado</span>
-      <button class="btn-cancel-appt" onclick="cancelAppt('${a.id}')">Cancelar</button>
+      <button type="button" class="btn-cancel-appt" data-action="cancel-appt" data-id="${escapeHTML(a.id)}">Cancelar</button>
     </div>
-  `).join('');
+  ` : '').join('');
 }
 
 async function cancelAppt(id) {
-  try { await db.collection('agendamentos').doc(id).delete(); showToast('Agendamento cancelado.'); }
+  if (!isSafeFirestoreId(id)) return;
+  try {
+    const ref = db.collection('agendamentos').doc(id);
+    const snap = await ref.get();
+    if (!snap.exists || snap.data().uid !== currentUser.uid) {
+      showToast('Você não pode cancelar este agendamento.');
+      return;
+    }
+    await ref.delete();
+    showToast('Agendamento cancelado.');
+  }
   catch(e) { showToast('❌ Erro ao cancelar.'); }
 }
 
@@ -512,9 +626,9 @@ function renderUpcoming() {
         <div class="upcoming-item">
           <div class="upcoming-dot"></div>
           <div class="upcoming-info">
-            <div class="upcoming-title">${a.serviceName}</div>
+            <div class="upcoming-title">${escapeHTML(a.serviceName)}</div>
             <div class="upcoming-time">
-              ${String(a.day).padStart(2,'0')}/${String(a.month+1).padStart(2,'0')} às ${a.time}
+              ${escapeHTML(String(a.day).padStart(2,'0'))}/${escapeHTML(String(a.month+1).padStart(2,'0'))} às ${escapeHTML(a.time)}
             </div>
           </div>
         </div>`).join('')
@@ -611,18 +725,18 @@ function renderAdminList() {
     return;
   }
 
-  container.innerHTML = list.map(a => `
+  container.innerHTML = list.map(a => isSafeFirestoreId(a.id) ? `
     <div class="appt-card admin-appt-card">
-      <div class="appt-time-badge">${String(a.day).padStart(2,'0')}/${String(a.month+1).padStart(2,'0')}<br>${a.time}</div>
+      <div class="appt-time-badge">${escapeHTML(String(a.day).padStart(2,'0'))}/${escapeHTML(String(a.month+1).padStart(2,'0'))}<br>${escapeHTML(a.time)}</div>
       <div class="appt-info">
-        <div class="appt-name">${a.clienteName}</div>
-        <div class="appt-service">${a.serviceName} · ${a.clientePhone || '—'}</div>
-        <div class="appt-email">${a.clienteEmail || ''}</div>
+        <div class="appt-name">${escapeHTML(a.clienteName)}</div>
+        <div class="appt-service">${escapeHTML(a.serviceName)} · ${escapeHTML(a.clientePhone || '—')}</div>
+        <div class="appt-email">${escapeHTML(a.clienteEmail || '')}</div>
       </div>
       <span class="appt-status status-confirmed">Confirmado</span>
-      <button class="btn-cancel-appt" onclick="adminCancelAppt('${a.id}')">Cancelar</button>
+      <button type="button" class="btn-cancel-appt" data-action="admin-cancel-appt" data-id="${escapeHTML(a.id)}">Cancelar</button>
     </div>
-  `).join('');
+  ` : '').join('');
 }
 
 function clearDateFilter() {
@@ -631,8 +745,21 @@ function clearDateFilter() {
 }
 
 async function adminCancelAppt(id) {
+  if (!isSafeFirestoreId(id)) return;
   if (!confirm('Cancelar este agendamento?')) return;
-  try { await db.collection('agendamentos').doc(id).delete(); showToast('Agendamento cancelado.'); }
+  try {
+    const ref = db.collection('agendamentos').doc(id);
+    const snap = await ref.get();
+    if (!snap.exists) return;
+    const appt = snap.data();
+    const allowed = userRole === 'superadmin' || appt.estabelecimentoId === adminEstabId;
+    if (!allowed) {
+      showToast('Você não pode cancelar este agendamento.');
+      return;
+    }
+    await ref.delete();
+    showToast('Agendamento cancelado.');
+  }
   catch(e) { showToast('❌ Erro ao cancelar.'); }
 }
 
@@ -658,6 +785,8 @@ async function createEstab() {
   const adminEmail = document.getElementById('new-estab-admin-email').value.trim();
 
   if (!nome || !adminEmail) { showToast('⚠ Preencha nome e e-mail do admin.'); return; }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)) { showToast('⚠ E-mail do admin inválido.'); return; }
+  if (!CATEGORY_KEYS.has(categoria) || categoria === 'todos') { showToast('⚠ Categoria inválida.'); return; }
 
   try {
     const ref = await db.collection('estabelecimentos').add({
@@ -701,4 +830,7 @@ function scrollToForm() {
   document.getElementById('booking-form').scrollIntoView({ behavior: 'smooth' });
 }
 
-document.addEventListener('DOMContentLoaded', initFirebase);
+document.addEventListener('DOMContentLoaded', () => {
+  setupEventHandlers();
+  initFirebase();
+});

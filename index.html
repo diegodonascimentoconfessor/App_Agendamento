@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; font-src 'self' https://fonts.gstatic.com https://cdn.jsdelivr.net; connect-src 'self' https://*.googleapis.com https://*.firebaseio.com https://*.firestore.googleapis.com https://securetoken.googleapis.com https://identitytoolkit.googleapis.com; frame-src https://*.firebaseapp.com https://accounts.google.com; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests" />
+  <meta name="referrer" content="strict-origin-when-cross-origin" />
   <title>Agenda+ — Sistema de Agendamentos</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -21,8 +23,8 @@
       <p class="auth-sub">Sistema de Agendamentos</p>
 
       <div class="auth-tabs">
-        <button class="auth-tab active" id="tab-login" onclick="switchTab('login')">Entrar</button>
-        <button class="auth-tab" id="tab-register" onclick="switchTab('register')">Cadastrar</button>
+        <button class="auth-tab active" id="tab-login" data-action="switch-tab" data-tab="login">Entrar</button>
+        <button class="auth-tab" id="tab-register" data-action="switch-tab" data-tab="register">Cadastrar</button>
       </div>
 
       <div id="form-login">
@@ -35,9 +37,9 @@
           <input type="password" id="login-password" placeholder="••••••••" />
         </div>
         <div class="auth-error" id="login-error"></div>
-        <button class="auth-btn-primary" onclick="loginEmail()">Entrar</button>
+        <button class="auth-btn-primary" data-action="login-email">Entrar</button>
         <div class="auth-divider"><span>ou</span></div>
-        <button class="auth-btn-google" onclick="loginGoogle()">
+        <button class="auth-btn-google" data-action="login-google">
           <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
           Continuar com Google
         </button>
@@ -57,9 +59,9 @@
           <input type="password" id="reg-password" placeholder="mínimo 6 caracteres" />
         </div>
         <div class="auth-error" id="reg-error"></div>
-        <button class="auth-btn-primary" onclick="registerEmail()">Criar conta</button>
+        <button class="auth-btn-primary" data-action="register-email">Criar conta</button>
         <div class="auth-divider"><span>ou</span></div>
-        <button class="auth-btn-google" onclick="loginGoogle()">
+        <button class="auth-btn-google" data-action="login-google">
           <svg width="18" height="18" viewBox="0 0 48 48"><path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/><path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/><path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/><path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.18 1.48-4.97 2.31-8.16 2.31-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/></svg>
           Continuar com Google
         </button>
@@ -84,7 +86,7 @@
           <div class="user-name" id="user-name">—</div>
           <div class="user-email" id="user-email"></div>
         </div>
-        <button class="btn-logout" onclick="logout()" title="Sair">
+        <button class="btn-logout" data-action="logout" title="Sair">
           <i class="ti ti-logout"></i>
         </button>
       </div>
@@ -97,8 +99,8 @@
           <div class="mini-cal-header">
             <h3 id="mini-month-year"></h3>
             <div style="display:flex;gap:4px">
-              <button class="nav-btn" onclick="changeMonth(-1)">&#8249;</button>
-              <button class="nav-btn" onclick="changeMonth(1)">&#8250;</button>
+              <button class="nav-btn" data-action="change-month" data-dir="-1">&#8249;</button>
+              <button class="nav-btn" data-action="change-month" data-dir="1">&#8250;</button>
             </div>
           </div>
           <div class="weekdays">
@@ -151,7 +153,7 @@
             </select>
             <input type="text" id="new-estab-addr" placeholder="Endereço" />
             <input type="email" id="new-estab-admin-email" placeholder="E-mail do admin" />
-            <button class="btn-sidebar-action" onclick="createEstab()">
+            <button class="btn-sidebar-action" data-action="create-estab">
               <i class="ti ti-plus"></i> Cadastrar
             </button>
           </div>
@@ -178,15 +180,15 @@
 
         <div class="search-bar">
           <i class="ti ti-search"></i>
-          <input type="text" id="search-input" placeholder="Buscar salão..." oninput="filterEstabs()" />
+          <input type="text" id="search-input" placeholder="Buscar salão..." />
         </div>
 
         <div class="category-chips">
-          <button class="chip active" onclick="filterCategory('todos',this)">Todos</button>
-          <button class="chip" onclick="filterCategory('salao',this)">💇 Salão</button>
-          <button class="chip" onclick="filterCategory('estetica',this)">🧖 Estética</button>
-          <button class="chip" onclick="filterCategory('manicure',this)">💅 Manicure</button>
-          <button class="chip" onclick="filterCategory('barbearia',this)">✂️ Barbearia</button>
+          <button class="chip active" data-action="filter-category" data-category="todos">Todos</button>
+          <button class="chip" data-action="filter-category" data-category="salao">💇 Salão</button>
+          <button class="chip" data-action="filter-category" data-category="estetica">🧖 Estética</button>
+          <button class="chip" data-action="filter-category" data-category="manicure">💅 Manicure</button>
+          <button class="chip" data-action="filter-category" data-category="barbearia">✂️ Barbearia</button>
         </div>
 
         <div class="section-label">Estabelecimentos</div>
@@ -197,13 +199,13 @@
       <div id="screen-booking" style="display:none">
         <div class="main-header">
           <div class="selected-date-display">
-            <button class="btn-back" onclick="goHome()">
+            <button class="btn-back" data-action="go-home">
               <i class="ti ti-arrow-left"></i> Voltar
             </button>
             <h2 id="booking-estab-title">Estabelecimento</h2>
             <p id="main-date-sub">Selecione um serviço e horário</p>
           </div>
-          <button class="btn-new" onclick="scrollToForm()">
+          <button class="btn-new" data-action="scroll-to-form">
             <i class="ti ti-plus"></i> Novo Agendamento
           </button>
         </div>
@@ -230,7 +232,7 @@
             <div class="form-group">
               <label>Telefone</label>
               <input type="tel" id="inp-phone" placeholder="(84) 99999-0000"
-                     oninput="this.value=this.value.replace(/[^0-9()\s-]/g,'')" maxlength="15" />
+                     maxlength="15" />
             </div>
           </div>
           <div class="form-row">
@@ -243,7 +245,7 @@
               <textarea id="inp-obs" placeholder="Alguma observação?"></textarea>
             </div>
           </div>
-          <button class="btn-confirm" onclick="confirmBooking()">Confirmar Agendamento</button>
+          <button class="btn-confirm" data-action="confirm-booking">Confirmar Agendamento</button>
         </div>
 
         <div class="section-label" id="appts-label">Agendamentos do dia</div>
@@ -258,14 +260,14 @@
             <p id="admin-subtitle">Todos os agendamentos</p>
           </div>
           <!-- Super admin: seletor de estabelecimento -->
-          <select id="admin-estab-select" style="display:none" onchange="loadAdminData()" class="estab-select">
+          <select id="admin-estab-select" style="display:none" class="estab-select">
             <option value="">Selecione um estabelecimento...</option>
           </select>
         </div>
 
         <div class="admin-filters">
-          <input type="date" id="admin-date-filter" onchange="renderAdminList()" />
-          <button class="btn-clear-filter" onclick="clearDateFilter()">Ver todos</button>
+          <input type="date" id="admin-date-filter" />
+          <button class="btn-clear-filter" data-action="clear-date-filter">Ver todos</button>
         </div>
 
         <div id="admin-appointments-list"></div>

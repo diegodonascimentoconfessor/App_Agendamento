@@ -225,6 +225,7 @@ body {
 .days-grid { display: grid; grid-template-columns: repeat(7,1fr); gap: 2px; }
 
 .day-cell {
+  appearance: none; border: 0; background: transparent; width: 100%; font-family: inherit;
   text-align: center; padding: 6px 2px; font-size: 0.80rem;
   border-radius: 6px; cursor: pointer; color: rgba(255,255,255,0.70);
   transition: all 0.15s;
@@ -416,9 +417,10 @@ body {
 .estabs-grid { display: flex; flex-direction: column; gap: 10px; }
 
 .estab-card {
-  background: var(--card); border: 0.5px solid var(--border);
-  border-radius: 14px; padding: 1rem 1.25rem;
-  display: flex; align-items: center; gap: 1rem;
+    appearance: none; width: 100%; font-family: inherit; color: inherit; text-align: left;
+    background: var(--card); border: 0.5px solid var(--border);
+    border-radius: 14px; padding: 1rem 1.25rem;
+    display: flex; align-items: center; gap: 1rem;
   cursor: pointer; transition: all 0.2s;
 }
 .estab-card:hover {
@@ -460,6 +462,7 @@ body {
 }
 
 .slot {
+  appearance: none; font-family: inherit;
   background: var(--slot-bg); border: 0.5px solid transparent;
   border-radius: 8px; padding: 0.5rem; text-align: center;
   font-size: 0.82rem; font-weight: 500; cursor: pointer;
