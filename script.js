@@ -144,6 +144,8 @@ function initFirebase() {
   db = firebase.firestore();
   db.enablePersistence({ synchronizeTabs: true }).catch(() => {});
 
+  firebase.auth().getRedirectResult().catch(e => showAuthError(e));
+
   firebase.auth().onAuthStateChanged(async user => {
     if (user) {
       currentUser = user;
@@ -226,8 +228,27 @@ async function registerEmail() {
 }
 
 async function loginGoogle() {
-  try { await firebase.auth().signInWithPopup(new firebase.auth.GoogleAuthProvider()); }
-  catch(e) { document.getElementById('login-error').textContent = authMsg(e.code); }
+  const provider = new firebase.auth.GoogleAuthProvider();
+  clearAuthErrors();
+
+  try {
+    await firebase.auth().signInWithPopup(provider);
+  } catch(e) {
+    console.error('Erro no login com Google:', e);
+
+    if (['auth/popup-blocked', 'auth/operation-not-supported-in-this-environment'].includes(e.code)) {
+      try {
+        await firebase.auth().signInWithRedirect(provider);
+        return;
+      } catch(redirectError) {
+        console.error('Erro no redirect do Google:', redirectError);
+        showAuthError(redirectError);
+        return;
+      }
+    }
+
+    showAuthError(e);
+  }
 }
 
 async function logout() {
@@ -242,10 +263,26 @@ function authMsg(code) {
     'auth/email-already-in-use': 'E-mail já cadastrado.',
     'auth/invalid-email':        'E-mail inválido.',
     'auth/weak-password':        'Senha muito fraca.',
+    'auth/popup-blocked':        'Popup bloqueado. Libere popups para este site ou tente novamente.',
     'auth/popup-closed-by-user': 'Login cancelado.',
+    'auth/cancelled-popup-request': 'Já existe uma tentativa de login em andamento.',
+    'auth/account-exists-with-different-credential': 'Este e-mail já usa outro método de login.',
+    'auth/operation-not-allowed': 'Login com Google não está habilitado no Firebase.',
+    'auth/operation-not-supported-in-this-environment': 'Este ambiente não permite popup. Tentando redirecionar...',
+    'auth/unauthorized-domain':  'Domínio não autorizado no Firebase Authentication.',
     'auth/invalid-credential':   'E-mail ou senha incorretos.',
   };
   return m[code] || 'Erro ao autenticar. Tente novamente.';
+}
+
+function clearAuthErrors() {
+  document.getElementById('login-error').textContent = '';
+  document.getElementById('reg-error').textContent = '';
+}
+
+function showAuthError(error) {
+  const activeForm = document.getElementById('form-register').style.display === 'none' ? 'login-error' : 'reg-error';
+  document.getElementById(activeForm).textContent = authMsg(error?.code);
 }
 
 // ══════════════════════════════════════════════════════
