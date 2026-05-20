@@ -67,6 +67,16 @@ function safeCategory(value) {
 }
 
 function setupEventHandlers() {
+  document.getElementById('form-login').addEventListener('submit', event => {
+    event.preventDefault();
+    loginEmail();
+  });
+
+  document.getElementById('form-register').addEventListener('submit', event => {
+    event.preventDefault();
+    registerEmail();
+  });
+
   document.addEventListener('click', event => {
     const target = event.target.closest('[data-action]');
     if (!target) return;
