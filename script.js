@@ -145,6 +145,10 @@ function fmtKey(d) {
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 
+function bookingOwnerUid(booking) {
+  return booking.userUid || booking.uid || null;
+}
+
 // ══════════════════════════════════════════════════════
 //  FIREBASE
 // ══════════════════════════════════════════════════════
@@ -408,9 +412,11 @@ async function openBooking(estabId) {
 function startBookingListener(estabId) {
   stopListener();
   unsubscribe = db.collection('agendamentos')
-    .where('estabelecimentoId','==', estabId)
+    .where('userUid','==', currentUser.uid)
     .onSnapshot(snap => {
-      appointments = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      appointments = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(a => a.estabelecimentoId === estabId);
       renderSlots();
       renderAppointments();
       renderUpcoming();
@@ -510,7 +516,9 @@ function selectService(id) {
 
 function renderSlots() {
   const dateKey = fmtKey(selectedDate);
-  const booked  = appointments.filter(a => a.dateKey === dateKey).map(a => a.time);
+  const booked  = appointments
+    .filter(a => a.dateKey === dateKey && bookingOwnerUid(a) === currentUser.uid)
+    .map(a => a.time);
   document.getElementById('time-slots').innerHTML = ALL_SLOTS.map(t => {
     const isBooked = booked.includes(t);
     const isSel    = selectedSlot === t;
@@ -562,31 +570,24 @@ async function confirmBooking() {
     ].join('_');
     const bookingRef = db.collection('agendamentos').doc(bookingId);
 
-    await db.runTransaction(async transaction => {
-      const existing = await transaction.get(bookingRef);
-      if (existing.exists) {
-        const err = new Error('slot-unavailable');
-        err.code = 'slot-unavailable';
-        throw err;
-      }
-      transaction.set(bookingRef, {
-        uid:                 currentUser.uid,
-        clienteName:         name.slice(0, 120),
-        clienteEmail:        currentUser.email || email,
-        clientePhone:        phone.slice(0, 20),
-        obs:                 obs.slice(0, 500),
-        time:                selectedSlot,
-        serviceName:         svc.name,
-        serviceId:           selectedService,
-        dateKey:             fmtKey(selectedDate),
-        year:                selectedDate.getFullYear(),
-        month:               selectedDate.getMonth(),
-        day:                 selectedDate.getDate(),
-        estabelecimentoId:   currentEstab.id,
-        estabelecimentoNome: currentEstab.nome,
-        status:              'confirmado',
-        createdAt:           firebase.firestore.FieldValue.serverTimestamp(),
-      });
+    await bookingRef.set({
+      userUid:             currentUser.uid,
+      uid:                 currentUser.uid,
+      clienteName:         name.slice(0, 120),
+      clienteEmail:        currentUser.email || email,
+      clientePhone:        phone.slice(0, 20),
+      obs:                 obs.slice(0, 500),
+      time:                selectedSlot,
+      serviceName:         svc.name,
+      serviceId:           selectedService,
+      dateKey:             fmtKey(selectedDate),
+      year:                selectedDate.getFullYear(),
+      month:               selectedDate.getMonth(),
+      day:                 selectedDate.getDate(),
+      estabelecimentoId:   currentEstab.id,
+      estabelecimentoNome: currentEstab.nome,
+      status:              'confirmado',
+      createdAt:           firebase.firestore.FieldValue.serverTimestamp(),
     });
 
 
@@ -596,7 +597,7 @@ async function confirmBooking() {
     showToast('✓ Agendamento confirmado!');
   } catch(e) {
     console.error(e);
-    showToast(e.code === 'slot-unavailable' ? '⚠ Este horário acabou de ser reservado.' : '❌ Erro ao salvar. Tente novamente.');
+    showToast(e.code === 'permission-denied' ? '⚠ Este horário acabou de ser reservado.' : '❌ Erro ao salvar. Tente novamente.');
   } finally {
     btn.disabled = false; btn.textContent = 'Confirmar Agendamento';
   }
@@ -607,7 +608,7 @@ async function confirmBooking() {
 function renderAppointments() {
   const dateKey = fmtKey(selectedDate);
   const list    = appointments
-    .filter(a => a.dateKey === dateKey && a.uid === currentUser.uid)
+    .filter(a => a.dateKey === dateKey && bookingOwnerUid(a) === currentUser.uid)
     .sort((a,b) => a.time.localeCompare(b.time));
 
   document.getElementById('appts-label').textContent = `Meus agendamentos — ${fmt(selectedDate)}`;
@@ -640,7 +641,7 @@ async function cancelAppt(id) {
   try {
     const ref = db.collection('agendamentos').doc(id);
     const snap = await ref.get();
-    if (!snap.exists || snap.data().uid !== currentUser.uid) {
+    if (!snap.exists || bookingOwnerUid(snap.data()) !== currentUser.uid) {
       showToast('Você não pode cancelar este agendamento.');
       return;
     }
@@ -657,7 +658,7 @@ function renderUpcoming() {
   const now = new Date();
   const upcoming = appointments
     .filter(a => {
-      if (a.uid !== currentUser.uid) return false;
+      if (bookingOwnerUid(a) !== currentUser.uid) return false;
       const [h, m] = a.time.split(':').map(Number);
       return new Date(a.year, a.month, a.day, h, m) >= now;
     })
@@ -689,7 +690,7 @@ function updateCounts() {
   const todayKey  = fmtKey(todayD);
   const weekStart = new Date(todayD); weekStart.setDate(todayD.getDate() - todayD.getDay());
   const weekEnd   = new Date(weekStart); weekEnd.setDate(weekStart.getDate() + 6);
-  const mine      = appointments.filter(a => a.uid === currentUser.uid);
+  const mine      = appointments.filter(a => bookingOwnerUid(a) === currentUser.uid);
 
   document.getElementById('count-today').textContent =
     mine.filter(a => a.dateKey === todayKey).length;
@@ -728,6 +729,7 @@ async function showAdminScreen(user, adminData) {
 async function loadEstabsForSelect() {
   const snap   = await db.collection('estabelecimentos').get();
   const select = document.getElementById('admin-estab-select');
+  select.innerHTML = '<option value="">Selecione um estabelecimento</option>';
   snap.docs.forEach(d => {
     const opt = document.createElement('option');
     opt.value = d.id;
@@ -781,7 +783,6 @@ function renderAdminList() {
         <div class="appt-email">${escapeHTML(a.clienteEmail || '')}</div>
       </div>
       <span class="appt-status status-confirmed">Confirmado</span>
-      <button type="button" class="btn-cancel-appt" data-action="admin-cancel-appt" data-id="${escapeHTML(a.id)}">Cancelar</button>
     </div>
   ` : '').join('');
 }
@@ -793,21 +794,7 @@ function clearDateFilter() {
 
 async function adminCancelAppt(id) {
   if (!isSafeFirestoreId(id)) return;
-  if (!confirm('Cancelar este agendamento?')) return;
-  try {
-    const ref = db.collection('agendamentos').doc(id);
-    const snap = await ref.get();
-    if (!snap.exists) return;
-    const appt = snap.data();
-    const allowed = userRole === 'superadmin' || appt.estabelecimentoId === adminEstabId;
-    if (!allowed) {
-      showToast('Você não pode cancelar este agendamento.');
-      return;
-    }
-    await ref.delete();
-    showToast('Agendamento cancelado.');
-  }
-  catch(e) { showToast('❌ Erro ao cancelar.'); }
+  showToast('Cancelamento pelo painel exige uma função de backend.');
 }
 
 function updateAdminCounts() {
@@ -837,19 +824,18 @@ async function createEstab() {
 
   try {
     const ref = await db.collection('estabelecimentos').add({
-      nome, categoria, endereco, ativo: true,
+      nome,
+      categoria,
+      endereco,
+      ativo: true,
+      ownerUid: currentUser.uid,
+      pendingAdminEmail: adminEmail,
       criadoEm: firebase.firestore.FieldValue.serverTimestamp(),
-    });
-    await db.collection('admins').doc(adminEmail).set({
-      role: 'admin',
-      estabelecimentoId:   ref.id,
-      estabelecimentoNome: nome,
-      email: adminEmail,
     });
     ['new-estab-name','new-estab-addr','new-estab-admin-email'].forEach(id => {
       document.getElementById(id).value = '';
     });
-    showToast(`✓ "${nome}" cadastrado!`);
+    showToast(`✓ "${nome}" cadastrado. Vincule o admin pelo backend.`);
     await loadEstabsForSelect();
   } catch(e) {
     console.error(e);
